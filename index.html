@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>チェスゲーム</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css" />
+  <style>
+    #log {
+      height: 200px;
+      overflow-y: scroll;
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div id="board" style="width: 400px"></div>
+  <button id="start-button">Start Game</button>
+  <div id="status"></div>
+  <div id="log"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.2/chess.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+
+  <script>
+    let board = null;
+    let game = new Chess();
+    let logs = [];
+
+    $('#start-button').on('click', function() {
+      game.reset();
+      board.start();
+      updateStatus();
+      clearLogs();
+    });
+
+    function onDragStart(source, piece, position, orientation) {
+      if (game.game_over() || (game.turn() === 'w' && piece.search(/^b/) !== -1)) {
+        return false;
+      }
+    }
+
+    function onDrop(source, target) {
+      let move = game.move({
+        from: source,
+        to: target,
+        promotion: 'q'
+      });
+
+      if (move === null) {
+        return 'snapback';
+      }
+
+      addLog('Player', move.from + move.to);
+
+      window.setTimeout(makeMove, 250);
+      updateStatus();
+    }
+
+    // マス目をグレーに変更する関数を追加
+    function greySquare(square) {
+      let $square = $('#board .square-' + square);
+      
+      let background = '#a9a9a9';
+      if ($square.hasClass('black-3c85d')) {
+        background = '#696969';
+      }
+
+      $square.css('background', background);
+    }
+
+    // グレーのマス目を元に戻す関数を追加
+    function removeGreySquares() {
+      $('#board .square-55d63').css('background', '');
+    }
+
+    // 合法な手の移動先をハイライト表示する関数を追加
+    function highlightLegalMoves(square) {
+      let moves = game.moves({square: square, verbose: true});
+      
+      if (moves.length === 0) return;
+
+      greySquare(square);
+
+      for (let i = 0; i < moves.length; i++) {
+        greySquare(moves[i].to);
+      }
+    }
+
+    // マウスオーバー時に合法な手をハイライト表示
+    $('#board').on('mouseover', '.square-55d63', function() {
+      let square = $(this).attr('data-square');
+      highlightLegalMoves(square);
+    });
+
+    // マウスアウト時にハイライトを解除
+    $('#board').on('mouseout', '.square-55d63', function() {
+      removeGreySquares();
+    });
+
+    function onSnapEnd() {
+      board.position(game.fen());
+    }
+
+    function updateStatus() {
+      let status = '';
+
+      let moveColor = 'White';
+      if (game.turn() === 'b') {
+        moveColor = 'Black';
+      }
+
+      if (game.in_checkmate()) {
+        status = 'Game over, ' + moveColor + ' is in checkmate.';
+      } else if (game.in_draw()) {
+        status = 'Game over, drawn position';
+      } else {
+        status = moveColor + ' to move';
+
+        if (game.in_check()) {
+          status += ', ' + moveColor + ' is in check';
+        }
+      }
+
+      $('#status').html(status);
+    }
+
+    let config = {
+      draggable: true,
+      position: 'start',
+      onDragStart: onDragStart,
+      onDrop: onDrop,
+      onSnapEnd: onSnapEnd
+    };
+
+    board = Chessboard('board', config);
+
+    updateStatus();
+
+    async function makeMove() {
+    if (game.game_over()) {
+      return;
+    }
+    console.log(game);
+    try {
+      const response = await fetch('http://localhost:8001/play_game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fen: game.fen(),
+          lastMove: game.history().length > 0 ? game.history({ verbose: true }).slice(-1)[0].from + game.history({ verbose: true }).slice(-1)[0].to : null
+         }),
+        timeout: 10000,
+        mode: 'cors',
+      });
+
+      const data = await response.json();
+      console.log(data);
+      const move = game.move(data, { sloppy: true });
+      addLog('AI', data);
+      board.position(game.fen());
+      updateStatus();
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  }
+
+    function addLog(player, move, prompt = '', response = '') {
+      let log = '';
+      if (player === 'Player') {
+        log = `Player: ${move}`;
+      } else {
+        log = `AI: ${move}`;
+        if (prompt && response) {
+          log += `
+Prompt:
+${prompt}
+
+Response:
+${response}`;
+        }
+      }
+      logs.push(log);
+      updateLogDisplay();
+    }
+
+    function clearLogs() {
+      logs = [];
+      updateLogDisplay();
+    }
+
+    function updateLogDisplay() {
+      let logElement = $('#log');
+      logElement.empty();
+
+      for (let i = 0; i < logs.length; i++) {
+        let logItem = $('<div>').text(logs[i]);
+        logElement.append(logItem);
+      }
+
+      logElement.scrollTop(logElement.prop('scrollHeight'));
+    }
+  </script>
+</body>
+</html>
